@@ -13,7 +13,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Custom CSS untuk Scrollbar -->
+    <!-- Custom CSS untuk Scrollbar & Base -->
     <style>
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -28,6 +28,10 @@
 
     <!-- Skrip Aplikasi Utama (Tipe Babel agar mendukung JSX dan Import Module) -->
     <script type="text/babel" data-type="module">
+        // --- KONFIGURASI GLOBAL ---
+        // MASUKKAN API KEY DEFAULT DI SINI agar web bisa langsung dipakai oleh pengguna tanpa login/setup.
+        const GLOBAL_API_KEY = "AIzaSyAc0C1kxdbgFWNNU09uQ3jkjPs5eT2njfc"; 
+
         const { useState, useEffect } = React;
         
         // Mengimpor Ikon Lucide dari CDN ESM
@@ -36,7 +40,7 @@
             LayoutTemplate, AlertCircle, BrainCircuit, Zap, Settings, KeyRound, 
             Cpu, X, Download, Send, Wand2, FileCode2, FileJson, FileText, 
             Archive, FolderOpen, Undo2, Smartphone, Tablet, Monitor, 
-            Instagram, MessageCircle, Music, Rocket, Info
+            Instagram, MessageCircle, Music, Rocket, Info, ShieldCheck
         } from 'https://esm.sh/lucide-react@0.292.0';
 
         function App() {
@@ -44,11 +48,18 @@
             const [activeTab, setActiveTab] = useState("generator");
             const [showWelcome, setShowWelcome] = useState(true);
 
-            // Settings State
+            // Settings State (dengan persistensi Local Storage)
             const [showSettings, setShowSettings] = useState(false);
-            const [useCustomKey, setUseCustomKey] = useState(false);
-            const [apiKeyInput, setApiKeyInput] = useState("");
-            const [selectedModel, setSelectedModel] = useState("gemini-2.5-flash-preview-09-2025");
+            const [useCustomKey, setUseCustomKey] = useState(() => localStorage.getItem('vibe_useCustomKey') === 'true');
+            const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('vibe_apiKey') || "");
+            const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem('vibe_model') || "gemini-2.5-flash");
+
+            // Menyimpan pengaturan ke Local Storage saat berubah
+            useEffect(() => {
+                localStorage.setItem('vibe_useCustomKey', useCustomKey);
+                localStorage.setItem('vibe_apiKey', apiKeyInput);
+                localStorage.setItem('vibe_model', selectedModel);
+            }, [useCustomKey, apiKeyInput, selectedModel]);
 
             // Generator State
             const [idea, setIdea] = useState("");
@@ -83,11 +94,18 @@
 
             // --- API HELPER ---
             const callGeminiAPI = async (prompt, systemInstruction, requireJson = false) => {
-                const finalApiKey = useCustomKey && apiKeyInput.trim() !== "" ? apiKeyInput.trim() : "";
-                // Jika tidak ada key saat dijalankan di komputer lokal tanpa environment khusus, 
-                // ini akan error, jadi user wajib mengisi API key di setting.
-                if(!finalApiKey && !window.location.hostname.includes('google')) {
-                    throw new Error("API Key kosong. Silakan masukkan API Key Gemini Anda di menu Pengaturan (ikon gerigi).");
+                // Prioritaskan Custom Key jika diaktifkan, jika tidak gunakan Global Key
+                let finalApiKey = "";
+                if (useCustomKey && apiKeyInput.trim() !== "") {
+                    finalApiKey = apiKeyInput.trim();
+                } else {
+                    finalApiKey = GLOBAL_API_KEY.trim();
+                }
+
+                if(!finalApiKey) {
+                    throw new Error(useCustomKey 
+                        ? "API Key Pribadi Anda kosong." 
+                        : "API Key Global belum dikonfigurasi oleh pemilik web. Silakan gunakan API Key Pribadi Anda di menu Pengaturan.");
                 }
 
                 const url = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${finalApiKey}`;
@@ -100,7 +118,7 @@
                             systemInstruction: { parts: [{ text: systemInstruction }] },
                             contents: [{ role: "user", parts: [{ text: prompt }] }],
                             generationConfig: {
-                                temperature: requireJson ? 0.1 : 0.5,
+                                temperature: requireJson ? 0.1 : 0.6,
                                 ...(requireJson && { responseMimeType: "application/json" })
                             }
                         };
@@ -150,7 +168,8 @@ Hasilkan instruksi tegas dan jelas dalam bahasa Indonesia. Jangan menulis kode a
                     setGeneratedPrompt(result);
                     if(window.innerWidth < 1024) setActiveTab("generator"); 
                 } catch (err) {
-                    setError(`Gagal membuat prompt: ${err.message}`);
+                    setError(`Gagal membuat arsitektur: ${err.message}`);
+                    if(err.message.includes("API Key")) setShowSettings(true);
                 } finally {
                     setIsGeneratingPrompt(false);
                 }
@@ -184,7 +203,7 @@ Format:
                     setActiveFile('index.html');
                     setPreviewDevice('desktop'); 
                 } catch (err) {
-                    setError(`Gagal membangun aplikasi: ${err.message}`);
+                    setError(`Gagal membangun proyek: ${err.message}`);
                 } finally {
                     setIsExecuting(false);
                 }
@@ -234,7 +253,7 @@ ATURAN:
                     if (!files['README.md']) files['README.md'] = "# Vibe Project";
                     return files;
                 } catch (err) {
-                    throw new Error("Gagal mengurai respons AI. Format bukan JSON valid.");
+                    throw new Error("Gagal mengurai respons AI. Format tidak sesuai (bukan JSON murni).");
                 }
             };
 
@@ -447,47 +466,63 @@ ATURAN:
                         </div>
                         
                         <div className="p-6 space-y-6">
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                            <label className="text-sm font-medium text-neutral-300 flex items-center gap-2">
-                                <KeyRound className="w-4 h-4" /> Gunakan API Key Pribadi
-                            </label>
-                            <button 
-                                onClick={() => setUseCustomKey(!useCustomKey)}
-                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${useCustomKey ? 'bg-indigo-500' : 'bg-neutral-700'}`}
-                            >
-                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${useCustomKey ? 'translate-x-6' : 'translate-x-1'}`} />
-                            </button>
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between bg-white/5 p-4 rounded-xl border border-white/10">
+                                <div>
+                                    <label className="text-sm font-medium text-white flex items-center gap-2">
+                                        <KeyRound className="w-4 h-4 text-indigo-400" /> Gunakan API Key Pribadi
+                                    </label>
+                                    <p className="text-xs text-neutral-400 mt-1">Aktifkan untuk memakai kunci milik Anda sendiri.</p>
+                                </div>
+                                <button 
+                                    onClick={() => setUseCustomKey(!useCustomKey)}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${useCustomKey ? 'bg-indigo-500' : 'bg-neutral-700'}`}
+                                >
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${useCustomKey ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
                             </div>
-                            {useCustomKey && (
-                            <input
-                                type="password"
-                                value={apiKeyInput}
-                                onChange={(e) => setApiKeyInput(e.target.value)}
-                                placeholder="AIzaSy..."
-                                className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3 text-sm text-neutral-200 focus:outline-none focus:border-indigo-500 transition-all shadow-inner"
-                            />
-                            )}
-                            {!useCustomKey && (
-                            <div className="text-xs text-amber-500/90 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 leading-relaxed">
-                                <b>Perhatian:</b> Karena ini berjalan secara lokal, Anda <b>Wajib</b> mengaktifkan toggle dan memasukkan API Key Gemini Anda sendiri agar aplikasi berfungsi. Dapatkan dari Google AI Studio.
-                            </div>
+
+                            {useCustomKey ? (
+                                <div className="animate-in fade-in slide-in-from-top-2">
+                                    <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2 block">Masukkan API Key Anda</label>
+                                    <input
+                                        type="password"
+                                        value={apiKeyInput}
+                                        onChange={(e) => setApiKeyInput(e.target.value)}
+                                        placeholder="AIzaSy..."
+                                        className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3 text-sm text-neutral-200 focus:outline-none focus:border-indigo-500 transition-all shadow-inner"
+                                    />
+                                    <p className="text-[11px] text-neutral-500 mt-2">*Tersimpan aman di browser Anda (Local Storage).</p>
+                                </div>
+                            ) : (
+                                <div className="animate-in fade-in slide-in-from-top-2 text-sm text-emerald-400/90 bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 leading-relaxed flex gap-3 items-start">
+                                    <ShieldCheck className="w-5 h-5 shrink-0 text-emerald-500 mt-0.5" />
+                                    <div>
+                                        <b>Global Key Aktif:</b>
+                                        <p className="text-emerald-500/70 text-xs mt-1">Sistem menggunakan API Key bawaan secara default. Anda bisa langsung memakainya secara gratis.</p>
+                                    </div>
+                                </div>
                             )}
                         </div>
 
-                        <div className="space-y-3">
+                        <div className="space-y-3 pt-2 border-t border-white/5">
                             <label className="text-sm font-medium text-neutral-300 flex items-center gap-2">
-                            <Cpu className="w-4 h-4" /> Pilih Model AI
+                                <Cpu className="w-4 h-4 text-purple-400" /> Pilih Model AI
                             </label>
-                            <select
-                            value={selectedModel}
-                            onChange={(e) => setSelectedModel(e.target.value)}
-                            className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3 text-sm text-neutral-200 focus:outline-none focus:border-indigo-500 transition-all appearance-none cursor-pointer"
-                            >
-                            <option value="gemini-2.5-flash-preview-09-2025">Gemini 2.5 Flash Preview</option>
-                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (Tingkat Lanjut)</option>
-                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Cepat)</option>
-                            </select>
+                            <div className="relative">
+                                <select
+                                    value={selectedModel}
+                                    onChange={(e) => setSelectedModel(e.target.value)}
+                                    className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3 text-sm text-neutral-200 focus:outline-none focus:border-purple-500 transition-all appearance-none cursor-pointer"
+                                >
+                                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Tercepat & Default)</option>
+                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Paling Cerdas)</option>
+                                    <option value="gemini-2.5-flash-preview-09-2025">Gemini 2.5 Flash Preview</option>
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                                    <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                </div>
+                            </div>
                         </div>
                         </div>
                         
@@ -537,6 +572,7 @@ ATURAN:
                         <button 
                         onClick={() => setShowSettings(true)}
                         className="p-2 text-neutral-400 hover:text-white hover:bg-white/10 rounded-xl transition-all border border-transparent hover:border-white/10"
+                        title="Pengaturan & API Key"
                         >
                         <Settings className="w-5 h-5" />
                         </button>
@@ -547,7 +583,7 @@ ATURAN:
                 <main className="flex-1 max-w-[1600px] w-full mx-auto p-4 sm:p-6 flex flex-col lg:flex-row gap-6 overflow-hidden h-[calc(100vh-64px)]">
                     
                     {error && (
-                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-[#150505] border border-red-500/50 text-red-400 px-5 py-3 rounded-2xl flex items-center gap-3 shadow-[0_0_30px_rgba(239,68,68,0.2)] max-w-[90%] w-auto">
+                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 bg-[#150505] border border-red-500/50 text-red-400 px-5 py-3 rounded-2xl flex items-center gap-3 shadow-[0_0_30px_rgba(239,68,68,0.2)] max-w-[90%] w-auto animate-in slide-in-from-top-4">
                         <AlertCircle className="w-5 h-5 shrink-0" />
                         <p className="text-sm font-medium leading-tight">{error}</p>
                         <button onClick={() => setError("")} className="ml-2 text-red-400/50 hover:text-red-400"><X className="w-4 h-4"/></button>
@@ -804,3 +840,4 @@ ATURAN:
     </script>
 </body>
 </html>
+
